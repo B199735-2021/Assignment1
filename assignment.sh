@@ -59,7 +59,7 @@ awk '{for(i=1;i<=NF;i++){a[FNR,i]=$i}}END{for(i=1;i<=NF;i++){for(j=1;j<=FNR;j++)
 IFS=$'\t'
 join -j 1 group Texpression.txt > expression_group.txt
 ## remove processing files
-rm group count.txt Texpression.txt
+rm count.txt Texpression.txt
 ## sort files with grouping column to make sure samples in sample group list adjacent
 sed 's/ /\t/g' expression_group.txt | sort -k2,2 > Texpression.txt
 ## transposed expression matrix transpose
@@ -69,3 +69,20 @@ cut -f 1,2,3,4,5 expression.txt > output.txt
 sed -i "1a\group\tgroup\tgroup\tgroup\tgroup" output.txt
 paste output.txt expression_group.txt > test.txt
 
+# sed "1d" 100k.fqfiles | cut -f2,3,4,5,6 | sort -k1,1 -k3,3 -k4,4 
+
+# sed "1d" 100k.fqfiles | cut -f2,4,5 | sed 's/\t/_/g' > condition.txt
+# sed "1d" 100k.fqfiles | nl - | cut -f1 | paste condition.txt - | \
+# awk '{array[$1] = array[$1] ? array[$1] " "$2 : $2} {for (i in array) print i,array[i]}' > grouping_file.txt
+IFS=$'\t'
+mkdir -p mean
+i=6
+sample_number=50
+while [ $i -le $sample_number ]
+do
+  cut -f "$i" test.txt | less -S | sed -n '2,2p' > "./mean/$(sed -n '2,2p' test.txt | cut -f $i).txt"
+  sed '1,2d' test.txt | cut -f "$i","$((i+1))","$((i+2))" | awk '{sum=0;for(i=1;i<=NF;i++)sum+=$i;print sum/3}' >> "./mean/$(sed -n '2,2p' test.txt | cut -f $i).txt"
+  let i=i+3
+done
+
+paste ./mean
