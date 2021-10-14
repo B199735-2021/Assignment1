@@ -1,18 +1,29 @@
+# Analysis Start Prompt
+echo 'RNA-Seq Analysis Start'
+# Create folder for log files
+mkdir -p log
 # 1.Assign all files needed for analysis
 # 1.1.Assign raw fastq file path
 fq_path='/localdisk/data/BPSM/AY21/fastq'
-#fq_path='/localdisk/home/s2172876/Assignment1/rawfastq'
+
 # 1.2.Genome file And Bed file
 fa_file='/localdisk/data/BPSM/AY21/Tcongo_genome/TriTrypDB-46_TcongolenseIL3000_2019_Genome.fasta.gz'
 bed_file='/localdisk/data/BPSM/AY21/TriTrypDB-46_TcongolenseIL3000_2019.bed'
 dir=$(pwd)
 ls -l $fq_path | awk '{FS=" ";  {print $9;}}' | sort | grep "fq.gz" | awk '{print(substr($1,1,13))}' | sort | uniq >./sampleid.txt
+echo -e "Loading fasta file from $fa_file......"
+echo -e "Loading bed file from $bed_file......"
+echo -e "Fastq files saved in $fq_path......"
 
-# 2.Perpreration for mapping
+
+# 2.Perperation for mapping
+echo -e "Preparation for mapping: building index for reference genome......."
 mkdir -p genome
+# copy fasta file to genome folder
 cp $fa_file ./genome/Genome.fasta.gz
 gzip -d ./genome/Genome.fasta.gz
-hisat2-build ./genome/Genome.fasta ./genome/Genome
+# hisat2 index building, redirect output to index.log file in log folder
+hisat2-build ./genome/Genome.fasta ./genome/Genome &> "./log/index.log"
 index_path='./genome/Genome'
 
 # 3. fastq to bam(.bai)
@@ -20,91 +31,91 @@ index_path='./genome/Genome'
 ## Using hisat2 to align reads, Using samtools to generate bam files and its index
 mkdir -p map
 mkdir -p fastqc
+mkdir -p ./log/fastqc
+echo -e "Step 1: Quality Contro AND Reads Alignment"
 cat ${PWD}/sampleid.txt | while read id
 do
     # 3.1 Perform quality control
-    ## -t thread: 5
+    ## -t thread: 8
     ## output to fastqc folder
-    fastqc ${fq_path}/${id}_1.fq.gz ${fq_path}/${id}_2.fq.gz -t 5 -o ${PWD}/fastqc/
+    echo -e "Analysing quality of sample ${id:5:8}"
+    fastqc --extract ${fq_path}/${id}_1.fq.gz ${fq_path}/${id}_2.fq.gz -t 8 -o ${PWD}/fastqc/ &> "./log/fastqc/${id:5:8}.log"
     # 3.2 Perform reads alignment
-    ## -p thread: 5
+    ## -p thread: 8
     ## sam file output to map folder
     ## log message redirects to map folder and save with filename mapeval(mapping-evaluation)
-    hisat2 -p 5 -x $index_path -1 ${fq_path}/${id}_1.fq.gz -2 ${fq_path}/${id}_2.fq.gz -S ./map/${id}.sam 2> "./map/${id}.mapeval" 
+    echo -e "Aligning reads of sample ${id:5:8}"
+    hisat2 -p 8 -x $index_path -1 ${fq_path}/${id}_1.fq.gz -2 ${fq_path}/${id}_2.fq.gz -S ./map/${id:5:8}.sam 2> "./map/${id:5:8}.mapeval" 
     # 3.3 sam to bam
-    samtools sort -@ 5 ./map/${id}.sam -o ./map/${id:5:8}.bam
+    echo -e "Converting the output to indexed "bam" format of sample ${id:5:8}"
+    samtools sort -@ 8 ./map/${id:5:8}.sam -o ./map/${id:5:8}.bam
     # 3.4 bam index
     samtools index ./map/${id:5:8}.bam ./map/${id:5:8}.bam.bai
 done
 
-# #4. Generate Count data
-# mkdir -p count
-# bedtools multicov -bams ./map/*.bam -bed /localdisk/data/BPSM/AY21/TriTrypDB-46_TcongolenseIL3000_2019.bed > count.txt
-# ## match sample id to count.txt
-# ### extract bam name in order
-# ls ./map/*.bam | cut -d "/" -f 3 | cut -d "." -f 2 | awk '{printf "%s\t",$1}' > colname
-# ### insert colname for first five columns 
-# sed 's/^/id\tstart\tend\tlocation\tdescription\t/' colname > expression.txt
-# cat count.txt >> expression.txt
+# 4,5. bam to count AND mean expression level
+## Using a loop to analysis each pair of fastq data
+## Using hisat2 to align reads, Using samtools to generate bam files and its index
 
-
-# #5. Statics Mean Calculation
-# cp /localdisk/data/BPSM/AY21/fastq/100k.fqfiles .
-# ## extract 2,4,5 colnames to identity group(samples in a group identical in 2_4_5 row)
-# cut 100k.fqfiles -f2,4,5 | sed 's/\t/_/g' | paste 100k.fqfiles - | cut - -f1,8 | sort >> group
-# ## extract expression matrix
-# cut -f 6- expression.txt > count.txt
-# ## expression matrix transpose in order to merge with grouping information
-# awk '{for(i=1;i<=NF;i++){a[FNR,i]=$i}}END{for(i=1;i<=NF;i++){for(j=1;j<=FNR;j++){printf a[j,i]"\t"}print ""}}' count.txt > Texpression.txt
-# ## merging expression matrix and grouping files
-# IFS=$'\t'
-# join -j 1 group Texpression.txt > expression_group.txt
-# ## remove processing files
-# rm count.txt Texpression.txt
-# ## sort files with grouping column to make sure samples in sample group list adjacent
-# sed 's/ /\t/g' expression_group.txt | sort -k2,2 > Texpression.txt
-# ## transposed expression matrix transpose
-# awk '{for(i=1;i<=NF;i++){a[FNR,i]=$i}}END{for(i=1;i<=NF;i++){for(j=1;j<=FNR;j++){printf a[j,i]"\t"}print ""}}' Texpression.txt > expression_group.txt
-# ## paste sample with gene descrpition
-# cut -f 1,2,3,4,5 expression.txt > output.txt
-# sed -i "1a\group\tgroup\tgroup\tgroup\tgroup" output.txt
-# paste output.txt expression_group.txt > test.txt
-
-# sed "1d" 100k.fqfiles | cut -f2,3,4,5,6 | sort -k1,1 -k3,3 -k4,4 
-###分组文件
-# sed "1d" 100k.fqfiles | cut -f2,4,5 | sed 's/\t/_/g' > condition.txt
-# sed "1d" 100k.fqfiles | nl - | cut -f1 | paste condition.txt - | \
-# awk '{array[$1] = array[$1] ? array[$1] " "$2 : $2} {for (i in array) print i,array[i]}' > grouping_file.txt
-
-# IFS=$'\t'
-# mkdir -p mean
-# i=6
-# sample_number=50
-# while [ $i -le $sample_number ]
-# do
-#   #sample name
-#   cut -f "$i" test.txt | less -S | sed -n '2,2p' > "./mean/$(sed -n '2,2p' test.txt | cut -f $i).txt"
-#   sed '1,2d' test.txt | cut -f "$i","$((i+1))","$((i+2))" | awk '{sum=0;for(i=1;i<=NF;i++)sum+=$i;print sum/3}' >> "./mean/$(sed -n '2,2p' test.txt | cut -f $i).txt"
-#   let i=i+3
-# done
-
-###分组文件,第二列要文件名
-mkdir -p group_count
+## create a folder to save files that containing counts of samples
+## counts of samples within a group are save in one file, the file name is the condition of each group  
+mkdir -p group_count 
+## create a folder to save mean count of each group
+mkdir -p group_mean
 cd ./map
+## copy sample datail file
 cp /localdisk/data/BPSM/AY21/fastq/100k.fqfiles .
+
+## creating grouping file: the first column are expriment condition
+## the second column lists the position of bam file regagrding to each group
+echo -e "Creating file of grouping information......"
 sed "1d" 100k.fqfiles | cut -f2,4,5 | sed 's/\t/_/g' > condition.txt
 sed "1d" 100k.fqfiles | cut -f1 | paste condition.txt - | \
 awk  '{a[$1]=a[$1]?a[$1]","$2:$2}END{for (i in a) print i,a[i]}' > grouping_file.txt
 
+## Generation count file for each group and Calculation of mean count
 for i in $(seq 1 $(cat grouping_file.txt | wc -l))
 do
-s=$(sed -n "${i}p" /localdisk/home/s2172876/Assignment1/planb/grouping_file.txt | awk '{print $2}')
-s=${s//,/.bam }
-bedtools multicov -bams ${s//,/ }.bam -bed $bed_file > $dir/group_count/$(sed -n "${i}p" grouping_file.txt | awk '{print $1}').txt
-## match sample id to count.txt
-#echo $(sed -n "${i}p" grouping_file.txt | awk '{print $2}' | cut -d "," -f $j) #cat ./count/$x
+    # calculate the sample of each
+    s=$(sed -n "${i}p" grouping_file.txt | awk '{print $2}')
+    s=${s//,/.bam }
+    #count
+    echo -e "Generating count file for condition $(sed -n "${i}p" grouping_file.txt | awk '{print $1}')"
+    echo -e "$s sample(s) are conducted in the condition $(sed -n "${i}p" grouping_file.txt | awk '{print $1}')"
+    echo -e "bedtools multicov generating......"
+    bedtools multicov -bams ${s//,/ }.bam -bed $bed_file > $dir/group_count/$(sed -n "${i}p" grouping_file.txt | awk '{print $1}').txt
+    echo -e "Count file for $(sed -n "${i}p" grouping_file.txt | awk '{print $1}') have been saved."
+    #mean
+    echo -e "Calculating mean count for group $(sed -n "${i}p" grouping_file.txt | awk '{print $1}')"
+    cat $dir/group_count/$(sed -n "${i}p" grouping_file.txt | awk '{print $1}').txt | cut -f 6- |\
+    awk '{FS="\t"; sum=0;for(i=1;i<=NF;i++) sum+=$i; print sum/=NF}' > $dir/group_mean/$(sed -n "${i}p" grouping_file.txt | awk '{print $1}')_mean.txt 
 done
 cd ..
-#mean https://stackoverflow.com/questions/31645668/average-of-multiple-files-in-shell
 
+# 6. Group-wise comparisons
+mkdir -p foldchange
+## Creating group comparisons file
+for ((i=1;i<12;i=i+3))
+do  
+    echo -e $(cat ./map/grouping_file.txt | awk '{IFS='\t';print $1}' | sed 's/_/\t/g' | sort -k2,2 -k3,3 | sed 's/\t/_/g' | sed -n ${i}p)'\t'\
+    $(cat ./map/grouping_file.txt | awk '{IFS='\t';print $1}' | sed 's/_/\t/g' | sort -k2,2 -k3,3 | sed 's/\t/_/g' | sed -n $(( $i + 1 ))p) >> foldchange_group.txt;
+    echo -e $(cat ./map/grouping_file.txt | awk '{IFS='\t';print $1}' | sed 's/_/\t/g' | sort -k2,2 -k3,3 | sed 's/\t/_/g' | sed -n ${i}p) '\t'\
+    $(cat ./map/grouping_file.txt | awk '{IFS='\t';print $1}' | sed 's/_/\t/g' | sort -k2,2 -k3,3 | sed 's/\t/_/g' | sed -n $(( $i + 2 ))p)'\t'>> foldchange_group.txt;
+    echo -e $(cat ./map/grouping_file.txt | awk '{IFS='\t';print $1}' | sed 's/_/\t/g' | sort -k2,2 -k3,3 | sed 's/\t/_/g' | sed -n $(( $i + 1 ))p)'\t'\
+    $(cat ./map/grouping_file.txt | awk '{IFS='\t';print $1}' | sed 's/_/\t/g' | sort -k2,2 -k3,3 | sed 's/\t/_/g' | sed -n $(( $i + 2 ))p) >> foldchange_group.txt;
+done
+col=$(ls ./group_count/ | sed -n '1p')
+cat ./group_count/$col | cut -f 5 > descrpition.txt
 
+## read group comparisons file line by line, extract two groups' count and calculate fold-changes
+while read groupA groupB; do
+    # combine groupA and groupB counts into a same file
+    paste ./group_mean/${groupA}_mean.txt ./group_mean/${groupB}_mean.txt > ./foldchange/${groupA}_vs_${groupB}.txt
+    # calculate fold-changes(groupA_count/groupB_count)
+    cat ./foldchange/${groupA}_vs_${groupB}.txt | \
+    awk '{if ($2==0) print "NA"; else print $1/$2}' > ./foldchange/${groupA}_vs_${groupB}_foldchange.txt
+    paste descrpition.txt ./foldchange/${groupA}_vs_${groupB}_foldchange.txt  > ./foldchange/${groupA}_vs_${groupB}.txt
+    # sort file by fold-changes
+    cat ./foldchange/${groupA}_vs_${groupB}.txt | sort -t$'\t' -k2,2nr > ./foldchange/${groupA}_vs_${groupB}_foldchange.txt 
+    rm ./foldchange/${groupA}_vs_${groupB}.txt 
+done < foldchange_group.txt
