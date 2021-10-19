@@ -158,6 +158,6 @@ sed -i "1 s/^/$(echo -e "chr\tstart\tend\tname\tdescription\t${n// /\t}")\n/"  m
 rm -rf descrpition.txt; rm -rf sampleid.txt; rm -rf mn; rm -rf mean_name
 rm -rf ./log2foldchange/*log2fc.txt
 rm -rf ./log2foldchange/*Induced.txt
-rm -rf ./foldchange/Induced.txt
+rm -rf ./foldchange/*Induced.txt
 rm -rf ./group_mean
 echo -e "RNA-Seq Analysis finish."
